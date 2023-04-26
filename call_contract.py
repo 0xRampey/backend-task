@@ -23,6 +23,19 @@ def get_abi(contract_address):
         return data['result']
     else:
         return None
+    
+# Check if contract has an 'implementation' storage slot
+def get_implementation_address(address):
+    impl_addr = w3.to_hex(
+        w3.eth.get_storage_at(
+            address,
+            "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3", # Storage slot address
+        )
+    )
+    impl_addr = '0x' + impl_addr[26:] # Extract last 20 bytes
+    if(w3.to_int(hexstr=impl_addr) == 0): # Nothing stored here
+        return None
+    return w3.to_checksum_address(impl_addr)
 
 @app.route('/call_contract', methods=['GET'])
 def get_contract_data():
@@ -37,7 +50,6 @@ def get_contract_data():
         contract_address = w3.to_checksum_address(contract_address)
         # Safe eval of arguments
         arguments = ast.literal_eval(arguments)
-        print(arguments)
     except ValueError:
         return jsonify({'error': 'Invalid input format'}), 400
 
@@ -47,6 +59,13 @@ def get_contract_data():
         return jsonify({'error': 'Unable to fetch contract ABI'}), 400
 
     contract = w3.eth.contract(address=contract_address, abi=contract_abi)
+
+    # Check if this is a proxy contract
+    implementation_address = get_implementation_address(contract_address)
+    if implementation_address:
+        print('Proxy contract found. Fetching implementation contract...')
+        contract_abi = get_abi(implementation_address)
+        contract = w3.eth.contract(address=contract_address, abi=contract_abi)
 
     try:
         function = contract.functions.__getattribute__(function_name)
